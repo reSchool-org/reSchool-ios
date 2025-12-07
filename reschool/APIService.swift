@@ -123,7 +123,8 @@ class APIService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.addValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
-        request.addValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", forHTTPHeaderField: "User-Agent")
+        request.addValue("eSchoolMobile", forHTTPHeaderField: "User-Agent")
+        request.addValue("ru-RU,en,*", forHTTPHeaderField: "Accept-Language")
         request.addValue("https://app.eschool.center", forHTTPHeaderField: "Origin")
         request.addValue("https://app.eschool.center/", forHTTPHeaderField: "Referer")
 
