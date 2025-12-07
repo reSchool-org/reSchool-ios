@@ -1,18 +1,43 @@
+import Foundation
+import CommonCrypto
 import SwiftUI
-import CryptoKit
 
-struct AppColors {
-    static let primary = Color(hex: "4A90E2")
-    static let secondary = Color(hex: "50E3C2")
+extension Calendar {
+    static var school: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.firstWeekday = 2
+        calendar.locale = Locale(identifier: "ru_RU")
+        return calendar
+    }
+}
 
-    static let background = Color(uiColor: .systemGroupedBackground)
-    static let card = Color(uiColor: .secondarySystemGroupedBackground)
-    static let textPrimary = Color.primary
-    static let textSecondary = Color.secondary
+struct IdentifiableURL: Identifiable {
+    let id = UUID()
+    let url: URL
+}
 
-    static let success = Color(hex: "2ECC71")
-    static let warning = Color(hex: "F1C40F")
-    static let danger = Color(hex: "E74C3C")
+struct CryptoHelper {
+    static func sha256(_ input: String) -> String {
+        guard let data = input.data(using: .utf8) else { return "" }
+        var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        data.withUnsafeBytes {
+            _ = CC_SHA256($0.baseAddress, CC_LONG(data.count), &digest)
+        }
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func randomString(length: Int) -> String {
+        let letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        return String((0..<length).map{ _ in letters.randomElement()! })
+    }
+}
+
+extension String {
+    func strippingHTML() -> String {
+        return self.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression, range: nil)
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 extension Color {
@@ -31,42 +56,13 @@ extension Color {
         default:
             (a, r, g, b) = (1, 1, 1, 0)
         }
+
         self.init(
             .sRGB,
             red: Double(r) / 255,
             green: Double(g) / 255,
-            blue: Double(b) / 255,
+            blue:  Double(b) / 255,
             opacity: Double(a) / 255
         )
-    }
-}
-
-struct CryptoHelper {
-    static func sha256(_ input: String) -> String {
-        let inputData = Data(input.utf8)
-        let hashed = SHA256.hash(data: inputData)
-        return hashed.compactMap { String(format: "%02x", $0) }.joined()
-    }
-
-    static func randomString(length: Int) -> String {
-        let letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        return String((0..<length).map{ _ in letters.randomElement()! })
-    }
-}
-
-extension String {
-    func strippingHTML() -> String {
-        return self.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression, range: nil)
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-    }
-}
-
-extension Calendar {
-    static var school: Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.firstWeekday = 2
-        calendar.timeZone = TimeZone.current
-        calendar.locale = Locale(identifier: "ru_RU")
-        return calendar
     }
 }

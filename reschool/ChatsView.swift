@@ -1,4 +1,7 @@
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
+import QuickLook
 
 struct ChatsView: View {
     @StateObject private var api = APIService.shared
@@ -622,8 +625,27 @@ struct ChatDetailView: View {
     @State private var isSelectionMode = false
     @State private var selectedMessageIds = Set<Int>()
 
+    @State private var selectedItems: [PhotosPickerItem] = []
+    @State private var selectedFiles: [UploadFile] = []
+    @State private var showFileImporter = false
+
+    @State private var previewURL: URL?
+    @State private var isDownloading = false
+
     var body: some View {
         VStack {
+            if isDownloading {
+                HStack {
+                    Text("Загрузка файла...")
+                        .font(.caption)
+                    ProgressView()
+                }
+                .padding(4)
+                .background(Material.regular)
+                .cornerRadius(8)
+                .padding(.top, 4)
+            }
+
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -663,13 +685,23 @@ struct ChatDetailView: View {
                                             .padding(.leading, 4)
                                     }
 
-                                    HStack(alignment: .bottom, spacing: 6) {
-                                        Text(msg.msg?.strippingHTML() ?? "")
-                                            .foregroundColor(isMe ? .white : AppColors.textPrimary)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        if let attachments = msg.attachInfo, !attachments.isEmpty {
+                                            ForEach(attachments, id: \.fileId) { attach in
+                                                AttachmentView(attachment: attach, isMe: isMe) {
+                                                    downloadAndPreview(attach, msgId: msg.msgId ?? 0)
+                                                }
+                                            }
+                                        }
 
-                                        Text(Date(timeIntervalSince1970: msg.createDate / 1000), style: .time)
-                                            .font(.system(size: 10))
-                                            .foregroundColor(isMe ? .white.opacity(0.7) : .gray)
+                                        HStack(alignment: .bottom, spacing: 6) {
+                                            Text(msg.msg?.strippingHTML() ?? "")
+                                                .foregroundColor(isMe ? .white : AppColors.textPrimary)
+
+                                            Text(Date(timeIntervalSince1970: msg.createDate / 1000), style: .time)
+                                                .font(.system(size: 10))
+                                                .foregroundColor(isMe ? .white.opacity(0.7) : .gray)
+                                        }
                                     }
                                     .padding(10)
                                     .background(isMe ? AppColors.primary : AppColors.card)
@@ -715,54 +747,27 @@ struct ChatDetailView: View {
                         }
                     }
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
 
             if isSelectionMode {
-                HStack {
-                    Button("Отмена") {
-                        withAnimation {
-                            isSelectionMode = false
-                            selectedMessageIds.removeAll()
-                        }
-                    }
-                    .foregroundColor(.red)
-
-                    Spacer()
-
-                    Text("Выбрано: \(selectedMessageIds.count)")
-                        .font(.headline)
-
-                    Spacer()
-
-                    Button(action: copySelectedMessages) {
-                        Image(systemName: "doc.on.doc")
-                    }
-                    .disabled(selectedMessageIds.isEmpty)
-                }
-                .padding()
-                .background(AppColors.card)
+                ChatSelectionBar(
+                    isSelectionMode: $isSelectionMode,
+                    selectedMessageIds: $selectedMessageIds,
+                    copySelectedMessages: copySelectedMessages
+                )
             } else {
-                HStack {
-                    TextField("Сообщение...", text: $newMessage)
-                        .padding(10)
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(20)
-                        .disabled(isSending)
-
-                    Button(action: sendMessage) {
-                        if isSending {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "paperplane.fill")
-                                .foregroundColor(newMessage.isEmpty ? .gray : AppColors.primary)
-                        }
-                    }
-                    .disabled(newMessage.isEmpty || isSending)
-                }
-                .padding()
-                .background(AppColors.card)
+                ChatInputBar(
+                    newMessage: $newMessage,
+                    selectedItems: $selectedItems,
+                    selectedFiles: $selectedFiles,
+                    showFileImporter: $showFileImporter,
+                    isSending: $isSending,
+                    sendMessage: sendMessage
+                )
             }
         }
+        .quickLookPreview($previewURL)
         .navigationTitle(title)
         .background(AppColors.background)
         .toolbar {
@@ -791,6 +796,12 @@ struct ChatDetailView: View {
         .task {
             await loadMessages()
         }
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item]) { result in
+            handleFileImport(result)
+        }
+        .onChange(of: selectedItems) { _, _ in
+            processSelectedPhotos()
+        }
     }
 
     func loadMessages() async {
@@ -800,12 +811,18 @@ struct ChatDetailView: View {
     }
 
     func sendMessage() {
-        guard !newMessage.isEmpty else { return }
+        guard !newMessage.isEmpty || !selectedFiles.isEmpty else { return }
         isSending = true
+        let textToSend = newMessage
+        let filesToSend = selectedFiles
+
         Task {
             do {
-                _ = try await api.sendMessage(threadId: threadId, msgText: newMessage)
-                newMessage = ""
+                _ = try await api.sendMessage(threadId: threadId, msgText: textToSend, files: filesToSend)
+                await MainActor.run {
+                    newMessage = ""
+                    selectedFiles.removeAll()
+                }
                 await loadMessages()
             }
             catch {
@@ -877,6 +894,230 @@ struct ChatDetailView: View {
         withAnimation {
             isSelectionMode = false
             selectedMessageIds.removeAll()
+        }
+    }
+
+    private func processSelectedPhotos() {
+        Task {
+            for item in selectedItems {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    if data.count <= 15 * 1024 * 1024 {
+                        let filename = "image_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(4)).jpg"
+                        let file = UploadFile(data: data, name: filename, mimeType: "image/jpeg")
+                        await MainActor.run {
+                            selectedFiles.append(file)
+                        }
+                    }
+                }
+            }
+            await MainActor.run {
+                selectedItems.removeAll()
+            }
+        }
+    }
+
+    private func downloadAndPreview(_ attachment: AttachInfo, msgId: Int) {
+        guard let fileId = attachment.fileId else { return }
+        let endpoint = api.getAttachmentEndpoint(msgId: msgId, fileId: fileId)
+
+        isDownloading = true
+        Task {
+            do {
+                let url = try await api.downloadFile(endpoint: endpoint)
+                await MainActor.run {
+                    self.previewURL = url
+                    self.isDownloading = false
+                }
+            } catch {
+                print("Download error: \(error)")
+                await MainActor.run {
+                    self.isDownloading = false
+                }
+            }
+        }
+    }
+
+    private func handleFileImport(_ result: Result<URL, Error>) {
+        do {
+            let url = try result.get()
+            if url.startAccessingSecurityScopedResource() {
+                defer { url.stopAccessingSecurityScopedResource() }
+
+                let data = try Data(contentsOf: url)
+                if data.count <= 15 * 1024 * 1024 {
+                    let filename = url.lastPathComponent
+                    let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+                    let file = UploadFile(data: data, name: filename, mimeType: mimeType)
+                    selectedFiles.append(file)
+                }
+            }
+        } catch {
+            print("File import error: \(error)")
+        }
+    }
+}
+
+struct AttachmentView: View {
+    let attachment: AttachInfo
+    let isMe: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack {
+                Image(systemName: iconName)
+                    .font(.title2)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(attachment.fileName ?? "Файл")
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    if let size = attachment.fileSize {
+                        Text(formatSize(size))
+                            .font(.caption2)
+                            .opacity(0.8)
+                    }
+                }
+            }
+            .padding(8)
+            .background(isMe ? Color.white.opacity(0.2) : Color.blue.opacity(0.1))
+            .cornerRadius(8)
+            .foregroundColor(isMe ? .white : .primary)
+        }
+    }
+
+    private var iconName: String {
+        guard let type = attachment.fileType?.lowercased() else { return "doc.fill" }
+        if type.contains("image") { return "photo.fill" }
+        if type.contains("pdf") { return "doc.text.fill" }
+        if type.contains("zip") || type.contains("rar") { return "archivebox.fill" }
+        return "doc.fill"
+    }
+
+    private func formatSize(_ size: Int) -> String {
+        let bcf = ByteCountFormatter()
+        bcf.allowedUnits = [.useKB, .useMB]
+        bcf.countStyle = .file
+        return bcf.string(fromByteCount: Int64(size))
+    }
+}
+
+struct ChatSelectionBar: View {
+    @Binding var isSelectionMode: Bool
+    @Binding var selectedMessageIds: Set<Int>
+    var copySelectedMessages: () -> Void
+
+    var body: some View {
+        HStack {
+            Button("Отмена") {
+                withAnimation {
+                    isSelectionMode = false
+                    selectedMessageIds.removeAll()
+                }
+            }
+            .foregroundColor(.red)
+
+            Spacer()
+
+            Text("Выбрано: \(selectedMessageIds.count)")
+                .font(.headline)
+
+            Spacer()
+
+            Button(action: copySelectedMessages) {
+                Image(systemName: "doc.on.doc")
+            }
+            .disabled(selectedMessageIds.isEmpty)
+        }
+        .padding()
+        .background(AppColors.card)
+    }
+}
+
+struct ChatInputBar: View {
+    @Binding var newMessage: String
+    @Binding var selectedItems: [PhotosPickerItem]
+    @Binding var selectedFiles: [UploadFile]
+    @Binding var showFileImporter: Bool
+    @Binding var isSending: Bool
+    var sendMessage: () -> Void
+
+    @State private var showPhotoPicker = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !selectedFiles.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack {
+                        ForEach(selectedFiles.indices, id: \.self) { idx in
+                            HStack {
+                                Image(systemName: "doc.fill")
+                                    .foregroundColor(.gray)
+                                Text(selectedFiles[idx].name)
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Button(action: {
+                                    withAnimation {
+                                        if idx < selectedFiles.count {
+                                            selectedFiles.remove(at: idx)
+                                        }
+                                    }
+                                }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.gray)
+                                }
+                            }
+                            .padding(8)
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(10)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                }
+            }
+
+            HStack {
+                Menu {
+                    Button {
+                        showPhotoPicker = true
+                    } label: {
+                        Label("Фото", systemImage: "photo")
+                    }
+
+                    Button {
+                        showFileImporter = true
+                    } label: {
+                        Label("Файл", systemImage: "doc")
+                    }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(AppColors.primary)
+                }
+
+                TextField("Сообщение...", text: $newMessage)
+                    .padding(10)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(20)
+                    .disabled(isSending)
+
+                Button(action: sendMessage) {
+                    if isSending {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                            .foregroundColor((newMessage.isEmpty && selectedFiles.isEmpty) ? .gray : AppColors.primary)
+                    }
+                }
+                .disabled((newMessage.isEmpty && selectedFiles.isEmpty) || isSending)
+            }
+            .padding()
+            .background(AppColors.card)
+            .photosPicker(isPresented: $showPhotoPicker, selection: $selectedItems, matching: .images)
         }
     }
 }

@@ -350,7 +350,7 @@ class APIService: ObservableObject {
         }
     }
 
-    func sendMessage(threadId: Int, msgText: String) async throws -> [String: Any] {
+    func sendMessage(threadId: Int, msgText: String, files: [UploadFile] = []) async throws -> [String: Any] {
         guard let url = URL(string: "\(baseURL)/chat/sendNew") else {
             throw URLError(.badURL)
         }
@@ -358,9 +358,8 @@ class APIService: ObservableObject {
         let msgUID = String(Int(Date().timeIntervalSince1970 * 1000))
 
         var request = getRequest(url: url, method: "POST")
-        request.addValue("multipart/form-data", forHTTPHeaderField: "Content-Type")
 
-        let boundary = UUID().uuidString
+        let boundary = "Boundary-\(UUID().uuidString)"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         var body = Data()
@@ -375,6 +374,15 @@ class APIService: ObservableObject {
             body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
             body.append("\(value)\r\n".data(using: .utf8)!)
         }
+
+        for file in files {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(file.name)\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: \(file.mimeType)\r\n\r\n".data(using: .utf8)!)
+            body.append(file.data)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
         request.httpBody = body
@@ -760,6 +768,10 @@ class APIService: ObservableObject {
             logResponse(nil, data: nil, error: error)
             throw error
         }
+    }
+
+    func getAttachmentEndpoint(msgId: Int, fileId: Int) -> String {
+        return "\(baseURL)/files/MAIL_ATTACH/\(msgId)/\(fileId)"
     }
 
     func downloadFile(endpoint: String) async throws -> URL {

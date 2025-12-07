@@ -64,6 +64,20 @@ struct MessageResponse: Codable, Identifiable {
     let imageId: Int?
     let imgObjType: String?
     let imgObjId: Int?
+    let attachInfo: [AttachInfo]?
+}
+
+struct AttachInfo: Codable {
+    let fileId: Int?
+    let fileName: String?
+    let fileSize: Int?
+    let fileType: String?
+}
+
+struct UploadFile {
+    let data: Data
+    let name: String
+    let mimeType: String
 }
 
 struct DiaryUnitResponse: Codable {

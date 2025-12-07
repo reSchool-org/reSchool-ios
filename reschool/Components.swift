@@ -1,5 +1,17 @@
 import SwiftUI
 
+struct AppColors {
+    static let background = Color(UIColor.systemGroupedBackground)
+    static let card = Color(UIColor.secondarySystemGroupedBackground)
+    static let textPrimary = Color.primary
+    static let textSecondary = Color.secondary
+    static let primary = Color.blue
+    static let secondary = Color.gray
+    static let success = Color.green
+    static let warning = Color.orange
+    static let danger = Color.red
+}
+
 struct GlassCard<Content: View>: View {
     let content: Content
 
