@@ -128,4 +128,8 @@ python3 main.py
 
 ## 📄 Лицензия
 
+<<<<<<< HEAD
 Проект распространяется под лицензией MIT. Подробнее см. в файле [LICENSE](https://github.com/reSchool-org/reSchool-ios/blob/cb30681d0fb62695f62ead33812b2926a4f324b9/LICENSE).
+=======
+Проект распространяется под лицензией MIT. Подробнее см. в файле [LICENSE](https://github.com/reSchool-org/reSchool-ios/blob/cb30681d0fb62695f62ead33812b2926a4f324b9/LICENSE).
+>>>>>>> 0bcc92faf8d6d1c1aacd7a9326597a3e7a8c7d32
