@@ -161,6 +161,28 @@ class APIService: ObservableObject {
         return selected
     }
 
+    func randomizeDeviceModel() -> String {
+        let key = "saved_device_model"
+
+        var deviceList: [String] = []
+
+        #if canImport(UIKit)
+        if let asset = NSDataAsset(name: "devices") {
+            if let devices = try? JSONDecoder().decode([String].self, from: asset.data) {
+                deviceList = devices
+            }
+        }
+        #endif
+
+        if deviceList.isEmpty {
+             deviceList = ["Android Device"]
+        }
+
+        let selected = deviceList.randomElement() ?? "Android Device"
+        UserDefaults.standard.set(selected, forKey: key)
+        return selected
+    }
+
     func login(username: String, password: String, rememberMe: Bool = false) async throws -> Bool {
         let passwordHash = CryptoHelper.sha256(password)
         let deviceId = CryptoHelper.randomString(length: 16).lowercased()

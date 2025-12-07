@@ -45,6 +45,12 @@ struct AboutView: View {
                         Text(deviceModel)
                             .foregroundColor(.gray)
                     }
+                    Button(action: {
+                        _ = APIService.shared.randomizeDeviceModel()
+                    }) {
+                        Text("Сменить устройство")
+                            .foregroundColor(.blue)
+                    }
                 }
 
                 Section(header: Text("Ссылки")) {
@@ -62,6 +68,7 @@ struct AboutView: View {
             }
             .navigationTitle("О приложении")
         }
+        .navigationViewStyle(.stack)
     }
 }
 
