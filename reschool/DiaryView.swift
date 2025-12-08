@@ -1,5 +1,6 @@
 import SwiftUI
 import QuickLook
+import UniformTypeIdentifiers
 
 struct LessonViewModel: Identifiable, Sendable {
     let id: Int
@@ -733,6 +734,14 @@ struct HomeworkDetailView: View {
     @Environment(\.presentationMode) var presentationMode
     @State private var previewURL: URL?
     @State private var isDownloading = false
+    @State private var downloadMessage: String?
+    @State private var showDownloadAlert = false
+    @State private var fileToSave: URL?
+    @State private var showFileSaver = false
+
+    private var isRunningOnMac: Bool {
+        ProcessInfo.processInfo.isiOSAppOnMac
+    }
 
     var body: some View {
         NavigationView {
@@ -768,20 +777,32 @@ struct HomeworkDetailView: View {
                             .padding(.leading, 4)
 
                         ForEach(files) { file in
-                            Button(action: { downloadAndPreview(file) }) {
-                                HStack {
-                                    Image(systemName: "doc.fill")
-                                        .foregroundColor(.blue)
-                                    Text(file.name)
-                                        .foregroundColor(.primary)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Image(systemName: "eye")
-                                        .foregroundColor(.blue)
+                            HStack(spacing: 8) {
+                                Button(action: { downloadAndPreview(file) }) {
+                                    HStack {
+                                        Image(systemName: "doc.fill")
+                                            .foregroundColor(.blue)
+                                        Text(file.name)
+                                            .foregroundColor(.primary)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Image(systemName: "eye")
+                                            .foregroundColor(.blue)
+                                    }
+                                    .padding()
+                                    .background(AppColors.card)
+                                    .cornerRadius(10)
                                 }
-                                .padding()
-                                .background(AppColors.card)
-                                .cornerRadius(10)
+
+                                if isRunningOnMac {
+                                    Button(action: { downloadToFolder(file) }) {
+                                        Image(systemName: "arrow.down.circle.fill")
+                                            .foregroundColor(.blue)
+                                            .font(.title2)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Скачать в папку Загрузки")
+                                }
                             }
                         }
                     }
@@ -804,6 +825,29 @@ struct HomeworkDetailView: View {
                 }
             }
             .quickLookPreview($previewURL)
+            .alert("Скачивание файла", isPresented: $showDownloadAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                if let message = downloadMessage {
+                    Text(message)
+                }
+            }
+            .fileExporter(
+                isPresented: $showFileSaver,
+                document: fileToSave.map { FileDocument(url: $0) },
+                contentType: .data,
+                defaultFilename: fileToSave?.lastPathComponent ?? "file"
+            ) { result in
+                switch result {
+                case .success(let url):
+                    downloadMessage = "Файл сохранён:\n\(url.path)"
+                    showDownloadAlert = true
+                case .failure(let error):
+                    downloadMessage = "Ошибка сохранения:\n\(error.localizedDescription)"
+                    showDownloadAlert = true
+                }
+                fileToSave = nil
+            }
         }
         .navigationViewStyle(.stack)
     }
@@ -828,5 +872,56 @@ struct HomeworkDetailView: View {
                 }
             }
         }
+    }
+
+    func downloadToFolder(_ file: HomeworkFile) {
+        guard !isDownloading else { return }
+        isDownloading = true
+
+        let urlStr = "https://app.eschool.center/ec-server/files/HOMEWORK_VARIANT/\(file.variantId)/\(file.id)"
+
+        Task {
+            do {
+                let tempURL = try await APIService.shared.downloadFile(endpoint: urlStr)
+
+                let tempDir = FileManager.default.temporaryDirectory
+                let namedURL = tempDir.appendingPathComponent(file.name)
+
+                try? FileManager.default.removeItem(at: namedURL)
+                try FileManager.default.copyItem(at: tempURL, to: namedURL)
+
+                await MainActor.run {
+                    self.isDownloading = false
+                    self.fileToSave = namedURL
+                    self.showFileSaver = true
+                }
+            } catch {
+                print("Download error: \(error)")
+                await MainActor.run {
+                    self.isDownloading = false
+                    self.downloadMessage = "Ошибка при скачивании файла:\n\(error.localizedDescription)"
+                    self.showDownloadAlert = true
+                }
+            }
+        }
+    }
+}
+
+struct FileDocument: SwiftUI.FileDocument {
+    static var readableContentTypes: [UTType] { [.data] }
+
+    let url: URL
+
+    init(url: URL) {
+        self.url = url
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        url = URL(fileURLWithPath: "")
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        let data = try Data(contentsOf: url)
+        return FileWrapper(regularFileWithContents: data)
     }
 }

@@ -9,6 +9,26 @@ struct AboutView: View {
         return "\(version) (\(build))"
     }
 
+    var currentPlatform: String {
+        if ProcessInfo.processInfo.isiOSAppOnMac {
+            return "Mac (Designed for iPad)"
+        }
+        #if os(macOS)
+        return "macOS"
+        #else
+        switch UIDevice.current.userInterfaceIdiom {
+        case .phone:
+            return "iPhone"
+        case .pad:
+            return "iPad"
+        case .mac:
+            return "Mac"
+        default:
+            return "iOS"
+        }
+        #endif
+    }
+
     var body: some View {
         NavigationView {
             List {
@@ -39,6 +59,12 @@ struct AboutView: View {
                 }
 
                 Section(header: Text("Устройство")) {
+                    HStack {
+                        Text("Платформа")
+                        Spacer()
+                        Text(currentPlatform)
+                            .foregroundColor(.gray)
+                    }
                     HStack {
                         Text("Отправка авторизации")
                         Spacer()
